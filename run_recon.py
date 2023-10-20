@@ -5,6 +5,7 @@ import numpy as np
 import sigpy as sp
 import sigpy.mri as mr
 import torch.nn as nn
+from einops import rearrange
 
 import matplotlib
 matplotlib.use('WebAgg')
@@ -14,10 +15,25 @@ from igrog.recon.reconstructor import reconstructor
 from torchkbnufft import KbNufft
 from einops import rearrange
 
+def dict_matching(signal, dct, tissues):
+    norm_vals = np.linalg.norm(dct, ord=2, axis=-1, keepdims=True)
+    norm_dict = dct / norm_vals
+    corr = signal @ norm_dict.squeeze().T
+    est_tissues_idx = np.argmax(corr, axis=-1)
+    est_amp = (
+        corr[np.arange(corr.shape[0]), est_tissues_idx]
+        / norm_vals[est_tissues_idx].squeeze()
+    )
+    est_tissues = tissues[est_tissues_idx].squeeze()
+    est_tissues[..., 0] = est_amp
+    return est_tissues
+
 # Params
 recon_types = [
-    # 'subspace',
-    'nonlinear']
+    'subspace',
+    # 'nonlinear'
+    ]
+figsize = (18, 10)
 data_dir = f'./simulated_data/'
 plot = True
 figsize = (18, 10)
@@ -36,7 +52,7 @@ torch_dev = torch.device(device_idx)
 if len(recon_types) > 0:
 
     # Load from simulated data
-    keys = ['ksp', 'trj', 'dcf', 'mps', 'phi']
+    keys = ['ksp', 'trj', 'dcf', 'mps', 'phi', 'dct', 'tissues']
     data_dict = {}
     for key in keys:
         data_dict[key] = np.load(data_dir + key + '.npy')
@@ -48,6 +64,8 @@ if len(recon_types) > 0:
     mps = data_dict['mps']
     phi = data_dict['phi']
     dcf = data_dict['dcf']
+    dct = data_dict['dct']
+    tissues = data_dict['tissues']
     
     # Add noise
     ksp += np.random.normal(0, sigma, ksp.shape) + 1j * np.random.normal(0, sigma, ksp.shape)
@@ -76,8 +94,9 @@ if len(recon_types) > 0:
                                     proxg=None,
                                     max_iter=max_iter,)
             # ceoffs = [nsub, Nx, Ny]
-
-            # TODO dictionary matching @yoni
+            compressed_dct = dct @ phi.T
+            coeffs = rearrange(coeffs, 'a b c -> (b c) a')
+            est_tissues = dict_matching(coeffs, compressed_dct, tissues)
 
         # Non linear recon
         elif 'nonlinear' in recon_type:
