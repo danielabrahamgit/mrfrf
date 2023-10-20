@@ -10,6 +10,7 @@ from einops import rearrange
 from igrog.recon.reconstructor import reconstructor
 from torchkbnufft import KbNufft
 from einops import rearrange
+from optimized_mrf.sequences import FISP
 
 import matplotlib
 matplotlib.use('webagg')
@@ -31,7 +32,7 @@ def dict_matching(signal, dct, tissues):
 # Params
 recon_types = [
     # 'subspace',
-    # 'nonlinear'
+    'nonlinear'
     ]
 figsize = (18, 10)
 data_dir = f'./simulated_data/'
@@ -66,6 +67,8 @@ if len(recon_types) > 0:
     dcf = data_dict['dcf']
     dct = data_dict['dct']
     tissues = data_dict['tissues']
+    seq = FISP.load(data_dir + 'seq')
+    breakpoint()
     
     # Add noise
     ksp += np.random.normal(0, sigma, ksp.shape) + 1j * np.random.normal(0, sigma, ksp.shape)
@@ -140,11 +143,6 @@ if len(recon_types) > 0:
             
             # Make it work!
 
-
-
-
-
-
     # Save
     np.save(f'{data_dir}/recons/{recon_type}.npy', coeffs)
     print(f'saved {recon_type}')
@@ -161,7 +159,6 @@ if plot:
 
     # Load data
     recon_type = 'subspace'
-    breakpoint()
     coeffs = np.load(f'{data_dir}/recons/{recon_type}.npy')
     n_subspace = coeffs.shape[0]
     d = len(coeffs.shape[1:])
