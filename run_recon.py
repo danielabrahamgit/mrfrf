@@ -7,13 +7,13 @@ import sigpy.mri as mr
 import torch.nn as nn
 from einops import rearrange
 
-import matplotlib
-matplotlib.use('WebAgg')
-import matplotlib.pyplot as plt
-
 from igrog.recon.reconstructor import reconstructor
 from torchkbnufft import KbNufft
 from einops import rearrange
+
+import matplotlib
+matplotlib.use('webagg')
+import matplotlib.pyplot as plt
 
 def dict_matching(signal, dct, tissues):
     norm_vals = np.linalg.norm(dct, ord=2, axis=-1, keepdims=True)
@@ -30,7 +30,7 @@ def dict_matching(signal, dct, tissues):
 
 # Params
 recon_types = [
-    'subspace',
+    # 'subspace',
     # 'nonlinear'
     ]
 figsize = (18, 10)
@@ -96,7 +96,7 @@ if len(recon_types) > 0:
             # ceoffs = [nsub, Nx, Ny]
             compressed_dct = dct @ phi.T
             coeffs = rearrange(coeffs, 'a b c -> (b c) a')
-            est_tissues = dict_matching(coeffs, compressed_dct, tissues)
+            est_tissues = dict_matching(coeffs.clone(), compressed_dct, tissues)
 
         # Non linear recon
         elif 'nonlinear' in recon_type:
@@ -148,6 +148,7 @@ if len(recon_types) > 0:
 
     # Save
     np.save(f'{data_dir}/recons/{recon_type}.npy', coeffs)
+    print(f'saved {recon_type}')
 
     # Clear memory for next run
     gc.collect()
@@ -159,8 +160,9 @@ if plot:
     # Magnitude
     transform = lambda x : np.abs(x)
 
-
     # Load data
+    recon_type = 'subspace'
+    breakpoint()
     coeffs = np.load(f'{data_dir}/recons/{recon_type}.npy')
     n_subspace = coeffs.shape[0]
     d = len(coeffs.shape[1:])
