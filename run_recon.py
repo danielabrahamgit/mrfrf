@@ -95,8 +95,7 @@ if len(recon_types) > 0:
                                     max_iter=max_iter,)
             # ceoffs = [nsub, Nx, Ny]
             compressed_dct = dct @ phi.T
-            coeffs = rearrange(coeffs, 'a b c -> (b c) a')
-            est_tissues = dict_matching(coeffs.clone(), compressed_dct, tissues)
+            est_tissues = dict_matching(rearrange(coeffs, 'a b c -> (b c) a'), compressed_dct, tissues)
 
         # Non linear recon
         elif 'nonlinear' in recon_type:
