@@ -47,6 +47,7 @@ if len(recon_types) > 0:
 
         # Subspace recon
         if 'sub' in recon_type:
+
             # Make recon object
             rcnstr = reconstructor(im_size=mps.shape[1:],
                                 trj=trj,
@@ -55,14 +56,20 @@ if len(recon_types) > 0:
                                 device_idx=device_idx,
                                 verbose=True)
             
-            
+            # Make linop
             A = rcnstr.build_linop(fast_AHA_os=fast_AHA_os)
             A.max_eigen = max_eigen
+
+            # Run subspace recon
             coeffs = rcnstr.run_recon(A_linop=A,
                                     ksp=ksp,
                                     mps=mps,
                                     proxg=None,
                                     max_iter=max_iter,)
+            # ceoffs = [nsub, Nx, Ny]
+
+            # TODO dictionary matching @yoni
+
         # Non linear recon
         elif 'nonlinear' in recon_type:
             
