@@ -1,31 +1,40 @@
+import os
 import gc
 import torch
 import numpy as np
 import sigpy as sp
 import sigpy.mri as mr
+import torch.nn as nn
 
 import matplotlib
 matplotlib.use('WebAgg')
 import matplotlib.pyplot as plt
 
 from igrog.recon.reconstructor import reconstructor
+from torchkbnufft import KbNufft
+from einops import rearrange
 
 # Params
-sigma = 1e-5 * 0
-plot = True
 recon_types = [
-    'subspace',
+    # 'subspace',
     'nonlinear']
-figsize = (18, 10)
 data_dir = f'./simulated_data/'
+plot = True
+figsize = (18, 10)
 
 # Recon params
+sigma = 1e-5 * 0
 fast_AHA_os = 2.0
 max_iter = 30
 max_eigen = None 
 device_idx = 6
 
+# GPU stuff
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+torch_dev = torch.device(device_idx)
+
 if len(recon_types) > 0:
+
     # Load from simulated data
     keys = ['ksp', 'trj', 'dcf', 'mps', 'phi']
     data_dict = {}
@@ -73,8 +82,50 @@ if len(recon_types) > 0:
         # Non linear recon
         elif 'nonlinear' in recon_type:
             
-            # Make linop 
-            pass # TODO
+            # Make torch linop
+            mps_torch = torch.tensor(mps, device=torch_dev, dtype=torch.complex64)
+            omega = torch.tensor(trj, device=torch_dev)
+            omega = np.pi * omega / omega.max()
+            omega_rs = rearrange(omega, 'nro npe ntr d -> ntr d (nro npe)')
+            tkb_obj = KbNufft(mps.shape[1:], device=torch_dev)
+            def A(x, time_batch_size=5):
+                """
+                x - (T, nx, ny)
+                """
+                T, _, K = omega_rs.shape
+                nc = mps_torch.shape[0]
+                ksp = torch.zeros((T, nc, K), dtype=torch.complex64)
+                for t1 in range(0, T, time_batch_size):
+                    t2 = min(t1 + time_batch_size, T)
+                    ksp[t1:t2] = tkb_obj(x[t1:t2, None], omega_rs[t1:t2], smaps=mps_torch)
+                return rearrange(ksp, 'ntr nc (nro npe) -> nc nro npe ntr',
+                                 nro=trj.shape[0], npe=trj.shape[1])
+            
+            # Randomly intialize param maps
+            im_size = mps.shape[1:]
+            params = torch.rand((*im_size, 1, 3), requires_grad=True)
+
+            # Gradient descent
+            nsteps = 100
+            epg = lambda params : torch.zeros((trj.shape[-1], *im_size))
+            optim = torch.optim.SGD(params, lr=1e-3)
+            loss_func = torch.nn.MSELoss()
+            losses = []
+            for i in range(nsteps):
+
+                ksp_est = A(epg(params))
+                loss = loss_func(ksp, ksp_est)
+                loss.backward()
+                optim.step()
+                optim.zero_grad()
+                losses.append(loss)
+            
+            # Make it work!
+
+
+
+
+
 
     # Save
     np.save(f'{data_dir}/recons/{recon_type}.npy', coeffs)
