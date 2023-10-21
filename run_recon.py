@@ -6,6 +6,7 @@ import sigpy as sp
 import sigpy.mri as mr
 import torch.nn as nn
 from einops import rearrange
+from tqdm import tqdm
 
 from igrog.recon.reconstructor import reconstructor
 from torchkbnufft import KbNufft
@@ -44,7 +45,7 @@ sigma = 1e-5 * 0
 fast_AHA_os = 2.0
 max_iter = 30
 max_eigen = None 
-device_idx = 6
+device_idx = 3
 
 # GPU stuff
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -60,18 +61,17 @@ if len(recon_types) > 0:
         print(f'{key} shape = {data_dict[key].shape}')
     
     # data
-    ksp = data_dict['ksp']
+    ksp = torch.from_numpy(data_dict['ksp']).to(device_idx)
     trj = data_dict['trj']
     mps = data_dict['mps']
     phi = data_dict['phi']
     dcf = data_dict['dcf']
     dct = data_dict['dct']
     tissues = data_dict['tissues']
-    seq = FISP.load(data_dir + 'seq')
-    breakpoint()
+    seq = FISP.load(data_dir + 'seq').to(device_idx)
     
     # Add noise
-    ksp += np.random.normal(0, sigma, ksp.shape) + 1j * np.random.normal(0, sigma, ksp.shape)
+    ksp += sigma * (torch.randn_like(ksp) + 1j * torch.randn_like(ksp))
 
     for recon_type in recon_types:
 
@@ -115,32 +115,54 @@ if len(recon_types) > 0:
                 """
                 T, _, K = omega_rs.shape
                 nc = mps_torch.shape[0]
-                ksp = torch.zeros((T, nc, K), dtype=torch.complex64)
+                ksp = torch.zeros((T, nc, K), dtype=torch.complex64, device=torch_dev)
                 for t1 in range(0, T, time_batch_size):
                     t2 = min(t1 + time_batch_size, T)
-                    ksp[t1:t2] = tkb_obj(x[t1:t2, None], omega_rs[t1:t2], smaps=mps_torch)
+                    ksp[t1:t2] = tkb_obj(x[t1:t2, None, ...], omega_rs[t1:t2], smaps=mps_torch[None, ...])
                 return rearrange(ksp, 'ntr nc (nro npe) -> nc nro npe ntr',
                                  nro=trj.shape[0], npe=trj.shape[1])
             
             # Randomly intialize param maps
             im_size = mps.shape[1:]
-            params = torch.rand((*im_size, 1, 3), requires_grad=True)
+            init_params = torch.ones((*im_size, 1, 3)).type(torch.float32)
+            init_params[..., 0, 0] = torch.rand(im_size)
+            init_params[..., 0, 1] = 100 + 1500 * torch.rand(im_size)
+            init_params[..., 0, 2] = 10 + 1000 * torch.rand(im_size)
+            params = init_params.to(device_idx).detach().clone()
+            params.requires_grad = True
+            # params = torch.rand((*im_size, 1, 3), requires_grad=True, device=next(seq.parameters()).device)
 
             # Gradient descent
-            nsteps = 100
-            epg = lambda params : torch.zeros((trj.shape[-1], *im_size))
-            optim = torch.optim.SGD(params, lr=1e-3)
+            nsteps = 1000
+            optim = torch.optim.SGD([params], lr=10)
             loss_func = torch.nn.MSELoss()
             losses = []
-            for i in range(nsteps):
-
-                ksp_est = A(epg(params))
-                loss = loss_func(ksp, ksp_est)
+            for i in tqdm(range(nsteps)):
+                ims = rearrange(seq(params).type(torch.complex64).squeeze(), 'h w t -> t h w')
+                ksp_est = A(ims)
+                loss = loss_func(ksp.real, ksp_est.real) + loss_func(ksp.imag, ksp_est.imag)
                 loss.backward()
                 optim.step()
                 optim.zero_grad()
                 losses.append(loss)
-            
+                print(loss)
+
+            plt.imshow(params[:, :, 0, 0].detach().cpu())
+            plt.colorbar()
+            plt.savefig('amps.png')
+            plt.close()
+            plt.imshow(params[:, :, 0, 1].detach().cpu())
+            plt.colorbar()
+            plt.savefig('t1.png')
+            plt.close()
+            plt.imshow(params[:, :, 0, 2].detach().cpu())
+            plt.colorbar()
+            plt.savefig('t2.png')
+            plt.close()
+            plt.plot(loss)
+            plt.savefig('loss.png')
+            plt.close()
+            quit()
             # Make it work!
 
     # Save
