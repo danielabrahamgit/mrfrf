@@ -6,20 +6,21 @@ import sigpy.mri as mr
 import matplotlib
 matplotlib.use("webagg")
 import matplotlib.pyplot as plt
+from optimized_mrf.utils import create_exp_dir
+from pathlib import Path
 
 from mr_sim.trj_lib import trj_lib
 from mr_sim.data_sim import data_sim, quant_phantom, mrf_sequence, simple_b1_map
 
 # Tunable Params
-n_coil = 12
-R = 1.0
+n_coil = 8
+R = 16.0
 dt = 4e-6
 nseg = 100
 device_idx = 4
-save_data_dir = f'./simulated_data/b1_data/'
 
-debug_im_undersampling = 220 // 32
-debug_seq_undersampling = 500 // 100
+debug_im_undersampling = 1 #220 // 31
+debug_seq_undersampling = 1#500 // 100
 
 # Load t1/t2/pd maps
 data = quant_phantom()
@@ -34,7 +35,10 @@ t2s = t2s[::debug_im_undersampling, ::debug_im_undersampling]
 pds = pds[::debug_im_undersampling, ::debug_im_undersampling]
 im_size = t1s.shape
 b1_map = simple_b1_map(t1s.shape)
-b1_map = np.zeros_like(b1_map)
+# b1_map = np.ones_like(b1_map)
+
+exp_name = f'im_size_{im_size}_coil_{n_coil}_R_{R}_b1_{np.unique(b1_map)}'
+save_data_dir = create_exp_dir(Path("./simulated_data/b1_data"), exp_name, add_datetime=False)
 
 # Load MRF sequence 
 data = mrf_sequence()
@@ -43,14 +47,14 @@ trs = torch.from_numpy(data["TR_init"][0].astype(np.float32))
 rfs = torch.deg2rad(torch.from_numpy(data["FA_init"][0].astype(np.float32)))
 trs = trs[::debug_seq_undersampling]
 rfs = rfs[::debug_seq_undersampling]
-dfas = torch.deg2rad(torch.tensor([0.0]))
-# dfas = torch.deg2rad(torch.tensor([0, 0, 0]))
+dfas = None # torch.deg2rad(torch.tensor([0.0]))
+# dfas = torch.deg2rad(torch.tensor([10, 10]))
 
 # Data sim object
 ds = data_sim(im_size=im_size, 
               rfs=rfs,
               trs=trs,
-              te=3, 
+              te=1.75, 
               dfas=dfas,
               device_idx=device_idx)
 
@@ -74,7 +78,7 @@ t2_vals = np.append(t2_vals, np.arange(1050, 2000, 50))
 t2_vals = np.append(t2_vals, np.arange(2100, 4000, 100))
 t1_vals, t2_vals = np.meshgrid(t1_vals, t2_vals, indexing="ij")
 t1_vals, t2_vals = t1_vals.flatten(), t2_vals.flatten()
-phi, dct, tissues = ds.est_subspace(t1_vals, t2_vals, sing_val_thresh=0.99)
+phi, dct, tissues = ds.est_subspace(t1_vals, t2_vals, sing_val_thresh=0.95, norm_before_subspace=True)
     
 # Simulate K-space data
 ksp, _, _, imgs = ds.sim_ksp(t1_map=t1s,
@@ -108,14 +112,14 @@ print(f'mps shape = {list(mps.shape)}')
 print(f'dct shape = {list(dct.shape)}')
 print(f'b1_map shape = {list(b1_map.shape)}')
 print(f'tissues shape = {list(tissues.shape)}')
-np.save(save_data_dir + "trj.npy", trj.numpy())
-np.save(save_data_dir + "dcf.npy", dcf.numpy())
-np.save(save_data_dir + "ksp.npy", ksp.numpy())
-np.save(save_data_dir + "mps.npy", mps.numpy())
-np.save(save_data_dir + "phi.npy", [p.detach().cpu().numpy() for p in phi])
-np.save(save_data_dir + "b1_map.npy", b1_map)
-np.save(save_data_dir + "dct.npy", dct.detach().cpu().numpy())
-np.save(save_data_dir + "tissues.npy", tissues.detach().cpu().numpy())
-np.save(save_data_dir + "imgs.npy",imgs.detach().cpu().numpy())
-ds.seq.save(save_data_dir + "seq")
+np.save(save_data_dir / "trj.npy", trj.numpy())
+np.save(save_data_dir / "dcf.npy", dcf.numpy())
+np.save(save_data_dir / "ksp.npy", ksp.numpy())
+np.save(save_data_dir / "mps.npy", mps.numpy())
+np.save(save_data_dir / "phi.npy", [p.detach().cpu().numpy() for p in phi])
+np.save(save_data_dir / "b1_map.npy", b1_map)
+np.save(save_data_dir / "dct.npy", dct.detach().cpu().numpy())
+np.save(save_data_dir / "tissues.npy", tissues.detach().cpu().numpy())
+np.save(save_data_dir / "imgs.npy",imgs.detach().cpu().numpy())
+ds.seq.save(save_data_dir / "seq")
 print('saved!')
