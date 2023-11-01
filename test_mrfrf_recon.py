@@ -206,11 +206,11 @@ sigma = 0.001
 n_iters = 20
 
 data_dirs = [
-    Path("simulated_data/b1_data/im_size_torch.Size([220, 220])_coil_8_R_16.0_b1_[0 1]"),
-    Path("simulated_data/b1_data/im_size_torch.Size([220, 220])_coil_8_R_16.0_b1_[0]"),
-    Path("simulated_data/b1_data/im_size_torch.Size([220, 220])_coil_8_R_16.0_b1_[1]"),
+    Path("simulated_data/b1/im_size_torch.Size([220, 220])_coil_8_R_16.0_n_b1_vals_20_n_subspaces_6"),
+    Path("simulated_data/b1/im_size_torch.Size([220, 220])_coil_8_R_16.0_n_b1_vals_20_n_subspaces_4"),
+    Path("simulated_data/b1/im_size_torch.Size([220, 220])_coil_8_R_16.0_n_b1_vals_20_max_1.2772691799877638_min_0.41349801952278464"),
 ]
-names = ["MRFRF", "Seq_0", "Seq_1"]
+names = ["MRFRF-6", "MRFRF-4", "MRFRF-3"]
 
 debug_im_undersampling = 1# 220 // 31
 data = quant_phantom()
@@ -232,7 +232,7 @@ mask = gt_pd > 1e-5
 avg_pd = np.mean(gt_pd[mask])
 n_coils = 8
 
-exp_name = f"im_size_{gt_pd.shape}_noise_{sigma}_n_iters_{n_iters}_n_coils_{n_coils}"
+exp_name = f"b1_im_size_{gt_pd.shape}_noise_{sigma}_n_iters_{n_iters}_n_coils_{n_coils}"
 
 log_dir = create_exp_dir(Path("./logs"), exp_name)
 logger.add(log_dir / "log-{time}.log")
