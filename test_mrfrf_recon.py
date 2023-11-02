@@ -13,8 +13,9 @@ from einops import rearrange
 from loguru import logger
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from optimized_mrf.utils import create_exp_dir
-
+import matplotlib.gridspec as gridspec
 from mr_sim.data_sim import quant_phantom
+import matplotlib.colors as mcolors
 
 device_idx = 0
 
@@ -148,7 +149,6 @@ def plot_coeffs(image_list, titles, save_path):
 
 
 def plot_recons(recon_list, ground_truth, titles, mask, save_path_prefix):
-    # Ensure that the number of titles matches the number of images
     if len(recon_list) != len(titles):
         raise ValueError(
             "The number of titles must match the number of images in the list."
@@ -157,50 +157,103 @@ def plot_recons(recon_list, ground_truth, titles, mask, save_path_prefix):
     modalities = ["PD", "T1", "T2"]
 
     for index, modality in enumerate(modalities):
-        fig, axarr = plt.subplots(2, len(recon_list), figsize=(5 * len(recon_list), 10))
+        gs = gridspec.GridSpec(2, len(recon_list) + 1, width_ratios=[5]*len(recon_list) + [0.5])
+        fig = plt.figure(figsize=(5 * len(recon_list), 10))
+        fig.suptitle(modality, fontsize=20, y=0.99)
 
+        # For consistent vmin, vmax across original images
+        vmin_orig = min([np.min(img[:, :, index]) for img in recon_list])
+        vmax_orig = max([np.max(img[:, :, index]) for img in recon_list])
+        
         for col, img in enumerate(recon_list):
             original_image = img[:, :, index]
             gt_image = ground_truth[:, :, index]
 
-            # Compute pixel-wise normalized loss
             normalized_loss = np.abs(original_image - gt_image) / (
                 gt_image + 1e-8
-            )  # added epsilon to avoid division by zero
-
-            # Compute normalized RMSE
+            )
             avg_err = np.mean(normalized_loss[mask])
 
-            # Plot original image
-            im_orig = axarr[0, col].imshow(original_image, cmap="hot")
-            axarr[0, col].axis("off")
-            axarr[0, col].set_title(titles[col])
+            ax_orig = fig.add_subplot(gs[0, col])
+            ax_loss = fig.add_subplot(gs[1, col])
 
-            # Plot normalized loss
-            im_loss = axarr[1, col].imshow(normalized_loss, cmap="hot", vmin=0, vmax=1)
-            axarr[1, col].axis("off")
-            axarr[1, col].text(
-                0.8 * original_image.shape[1],
+            im_orig = ax_orig.imshow(original_image, cmap="hot", vmin=vmin_orig, vmax=vmax_orig)
+            ax_orig.axis("off")
+            ax_orig.set_title(titles[col], fontsize=20)
+
+            im_loss = ax_loss.imshow(normalized_loss, cmap="hot", vmin=0, vmax=1)
+            ax_loss.axis("off")
+            ax_loss.text(
+                0.78 * original_image.shape[1],
                 0.95 * original_image.shape[0],
                 f"Avg.Err: {avg_err:.4f}",
                 color="white",
                 ha="center",
+                va="center",
+                fontsize=16
             )
 
             if col == len(recon_list) - 1:
-                divider_orig = make_axes_locatable(axarr[0, col])
-                cax_orig = divider_orig.append_axes("right", size="5%", pad=0.05)
-                plt.colorbar(im_orig, cax=cax_orig)
+                ax_cbar_orig = fig.add_subplot(gs[0, -1])
+                ax_cbar_loss = fig.add_subplot(gs[1, -1])
 
-                divider_loss = make_axes_locatable(axarr[1, col])
-                cax_loss = divider_loss.append_axes("right", size="5%", pad=0.05)
-                plt.colorbar(im_loss, cax=cax_loss)
+                cbar_orig = fig.colorbar(im_orig, cax=ax_cbar_orig)
+                cbar_orig.ax.set_title('ms', pad=10, fontsize=18)
+                cbar_orig.ax.tick_params(labelsize=16)
 
+                cbar_loss = fig.colorbar(im_loss, cax=ax_cbar_loss)
+                cbar_loss.set_ticks([0, 0.25, 0.5, 0.75, 1])
+                cbar_loss.set_ticklabels(['0%', '25%', '50%', '75%', '100%'])
+                cbar_loss.ax.tick_params(labelsize=16)
+
+        plt.subplots_adjust(wspace=0.05, hspace=0.05)
+        plt.tight_layout()
         plt.savefig(
-            f"{save_path_prefix}_{modality}.png", bbox_inches="tight", pad_inches=0.1
+            f"{save_path_prefix}_{modality}_Recon.png", bbox_inches="tight", pad_inches=0.1
         )
         plt.close(fig)
+        
+        # Ground truth plotting
+        fig_gt = plt.figure(figsize=(5, 5))
+        plt.imshow(ground_truth[:, :, index], cmap="hot", vmin=vmin_orig, vmax=vmax_orig)
+        plt.axis("off")
+        plt.title(f"Ground Truth {modality}", fontsize=22)
+        plt.savefig(
+            f"{save_path_prefix}_{modality}_GT.png", bbox_inches="tight", pad_inches=0.1
+        )
+        plt.close(fig_gt)
 
+def plot_integer_array(arr, save_path=None):
+    unique_vals = np.unique(arr)
+    num_unique = len(unique_vals)
+
+    # Create a colormap
+    cmap = plt.cm.get_cmap('tab20', num_unique)
+
+    # Create a normalized boundary for the colormap
+    boundaries = np.arange(0, num_unique + 1)
+    norm = mcolors.BoundaryNorm(boundaries, cmap.N, clip=True)
+
+    # Plot the image
+    fig, ax = plt.subplots(figsize=(10,10))
+    cax = ax.matshow(arr, cmap=cmap, norm=norm)
+    
+    # Create a smaller axis for the colorbar next to the main plot
+    cbar_ax = fig.add_axes([0.92, 0.4, 0.02, 0.2])  # [left, bottom, width, height]
+    
+    # Set the colorbar
+    cbar = fig.colorbar(cax, cax=cbar_ax, ticks=boundaries[:-1] + 0.5)
+    cbar.set_ticklabels([f"Sequence {i}" for i in range(1, num_unique + 1)])
+    cbar.ax.tick_params(labelsize=30)  
+    ax.set_xticks([])
+    ax.set_yticks([])
+    
+    # Save the figure if save_path is provided
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close(fig)
+    else:
+        plt.show()
 
 sigma = 0.001
 n_iters = 20
@@ -294,10 +347,7 @@ for i, (name, data_dir) in enumerate(zip(names, data_dirs)):
 
     # Plot B1:
     b1_map = sp.to_device(b1_map, -1)
-    plt.imshow(b1_map)
-    plt.colorbar()
-    plt.savefig(log_dir / f"{name}_b1_map.png")
-    plt.close()
+    plot_integer_array(b1_map, log_dir / f"{name}_b1_map.png")
 
 # Plot subspace coeffs
 plot_coeffs(recon_coeffs, names, log_dir / "coeffs_cmpr.png")
@@ -305,4 +355,6 @@ plot_coeffs(recon_coeffs, names, log_dir / "coeffs_cmpr.png")
 
 # Plot reconstructed maps and errors
 gt = sp.to_device(np.concatenate((gt_pd[..., None], gt_t1[..., None], gt_t2[..., None]), axis=-1), -1)
-plot_recons(recon_maps, gt, names, sp.to_device(mask, -1), log_dir / "recon_cmpr.png")
+plot_recons(recon_maps, gt, names, sp.to_device(mask, -1), log_dir / "recon_cmpr")
+
+quit()
