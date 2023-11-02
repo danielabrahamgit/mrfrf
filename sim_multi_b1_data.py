@@ -46,7 +46,7 @@ R = 16.0
 dt = 4e-6
 nseg = 100
 device_idx = 4
-n_subspaces = 6
+n_subspaces = 2
 
 debug_im_undersampling = 1  # 220 // 31
 debug_seq_undersampling = 1  # 500 // 100
@@ -63,20 +63,21 @@ t1s = t1s[::debug_im_undersampling, ::debug_im_undersampling]
 t2s = t2s[::debug_im_undersampling, ::debug_im_undersampling]
 pds = pds[::debug_im_undersampling, ::debug_im_undersampling]
 im_size = t1s.shape
-# b1_map = simple_b1_map(t1s.shape)
-b1_map = get_b1_map(im_size, mode=0, scale=1.3)
-b1_map = discretize_array(b1_map, 20)
+b1_map = simple_b1_map(t1s.shape)
+# b1_map = get_b1_map(im_size, mode=0, scale=1.3)
+# b1_map = discretize_array(b1_map, 20)
+b1_map = np.zeros_like(b1_map)
 
 subspace_b1_map = b1_map.copy()
 
 # b1_map = np.ones_like(b1_map)
-b1_vals = np.unique(b1_map)
+b1_vals = np.array([0, 1]) #np.unique(b1_map)
 b1_tmp = torch.zeros_like(torch.from_numpy(b1_map))
 for i, b1 in enumerate(b1_vals):
     b1_tmp[b1_map == b1] = i
 b1_map = b1_tmp.to(torch.int)
 
-exp_name = f"im_size_{im_size}_coil_{n_coil}_R_{R}_n_b1_vals_{len(b1_vals)}_n_subspaces_{n_subspaces}"
+exp_name = f"im_size_{im_size}_coil_{n_coil}_R_{R}_n_b1_vals_{len(b1_vals)}_n_subspaces_{n_subspaces}_0"
 save_data_dir = create_exp_dir(
     Path("./simulated_data/b1"), exp_name, add_datetime=False
 )
