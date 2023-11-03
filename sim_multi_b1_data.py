@@ -1,4 +1,6 @@
 import os
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import torch
 import numpy as np
 import sigpy as sp
@@ -25,11 +27,12 @@ def discretize_array(arr, N):
     sorted_values = np.sort(arr.ravel())
 
     # Compute custom bin edges based on the sorted data
-    bin_indices = np.linspace(0, len(sorted_values) - 1, N).astype(int)
+    bin_indices = np.linspace(0, len(sorted_values) - 1, N+1).astype(int)
     bins = sorted_values[bin_indices]
     
     # Append a value slightly larger than the max value to ensure it's included as a bin edge
-    bins = np.append(bins, sorted_values[-1] + np.finfo(float).eps)
+    bins[-1] += 1e-5
+    bins[0] -= 1e-5
 
     # Quantize the array values using custom bins
     digitized = np.digitize(arr, bins, right=True) - 1
@@ -45,8 +48,8 @@ n_coil = 8
 R = 16.0
 dt = 4e-6
 nseg = 100
-device_idx = 4
-n_subspaces = 6
+device_idx = 0
+n_subspaces = 5
 
 debug_im_undersampling = 1  # 220 // 31
 debug_seq_undersampling = 1  # 500 // 100
@@ -117,15 +120,19 @@ t2_vals = np.append(t2_vals, np.arange(1050, 2000, 50))
 t2_vals = np.append(t2_vals, np.arange(2100, 4000, 100))
 t1_vals, t2_vals = np.meshgrid(t1_vals, t2_vals, indexing="ij")
 t1_vals, t2_vals = t1_vals.flatten(), t2_vals.flatten()
-phi, dct, tissues, b1_vals = ds.est_subspace(
+
+clusters = torch.from_numpy(np.load('clusters.npy'))
+phi, dct, tissues = ds.est_subspace(
     t1_vals,
     t2_vals,
     sing_val_thresh=0.95,
     norm_before_subspace=True,
     n_subspaces=n_subspaces,
+    clusters = clusters
 )
 
 # Simulate K-space data
+fa_map = torch.from_numpy(np.load('fa_map.npy')).to(device_idx)
 ksp, _, _, imgs = ds.sim_ksp(
     t1_map=t1s,
     t2_map=t2s,
@@ -134,16 +141,13 @@ ksp, _, _, imgs = ds.sim_ksp(
     trj=trj,
     coil_batch_size=n_coil,
     seg_batch_size=1,
-    b1_map=b1_map,
+    b1_map=fa_map,
 )
 
 # DCF
 dcf = ds.est_dcf(trj)
 
 # Set the b1 map based on the closest subspace point
-dist = np.abs(subspace_b1_map[..., None] - b1_vals.cpu().numpy())
-b1_map = np.argmin(dist, axis=-1)
-
 # Create folder with final data
 try:
     os.mkdir(save_data_dir)
@@ -161,7 +165,6 @@ print(f"ksp shape = {list(ksp.shape)}")
 print(f"mps shape = {list(mps.shape)}")
 # print(f'phi shape = {list(phi.shape)}')
 print(f"dct shape = {list(dct.shape)}")
-print(f"b1_map shape = {list(b1_map.shape)}")
 print(f"tissues shape = {list(tissues.shape)}")
 np.save(save_data_dir / "trj.npy", trj.numpy())
 np.save(save_data_dir / "dcf.npy", dcf.numpy())

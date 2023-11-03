@@ -1,7 +1,7 @@
 import os
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import time
 from pathlib import Path
 
@@ -125,6 +125,8 @@ def plot_coeffs(image_list, titles, save_path):
     num_columns = len(image_list)
 
     fig, axarr = plt.subplots(C, num_columns, figsize=(5 * num_columns, 5 * C))
+    if num_columns == 1:
+        axarr = axarr[:, None]
 
     for c in range(C):
         # Determine the vmin and vmax for the current channel across all images in the list
@@ -243,7 +245,7 @@ def plot_integer_array(arr, save_path=None):
     
     # Set the colorbar
     cbar = fig.colorbar(cax, cax=cbar_ax, ticks=boundaries[:-1] + 0.5)
-    cbar.set_ticklabels([f"Sequence {i}" for i in range(1, num_unique + 1)])
+    cbar.set_ticklabels([f"Subspace {i}" for i in range(1, num_unique + 1)])
     cbar.ax.tick_params(labelsize=30)  
     ax.set_xticks([])
     ax.set_yticks([])
@@ -259,11 +261,9 @@ sigma = 0.001
 n_iters = 20
 
 data_dirs = [
-    Path("simulated_data/b1/im_size_torch.Size([220, 220])_coil_8_R_16.0_n_b1_vals_20_n_subspaces_6"),
-    Path("simulated_data/b1/im_size_torch.Size([220, 220])_coil_8_R_16.0_n_b1_vals_20_n_subspaces_4"),
-    Path("simulated_data/b1/im_size_torch.Size([220, 220])_coil_8_R_16.0_n_b1_vals_20_max_1.2772691799877638_min_0.41349801952278464"),
+    Path("simulated_data/b1/im_size_torch.Size([220, 220])_coil_8_R_16.0_n_b1_vals_20_n_subspaces_5"),
 ]
-names = ["MRFRF-6", "MRFRF-4", "MRFRF-3"]
+names = ["MRFRF-5"]
 
 debug_im_undersampling = 1# 220 // 31
 data = quant_phantom()
@@ -281,8 +281,8 @@ gt_t1 = gt_t1[::debug_im_undersampling, ::debug_im_undersampling]
 gt_t2 = gt_t2[::debug_im_undersampling, ::debug_im_undersampling]
 gt_pd = gt_pd[::debug_im_undersampling, ::debug_im_undersampling]
 
-mask = gt_pd > 1e-5
-avg_pd = np.mean(gt_pd[mask])
+brain_mask = gt_pd > 1e-5
+avg_pd = np.mean(gt_pd[brain_mask])
 n_coils = 8
 
 exp_name = f"b1_im_size_{gt_pd.shape}_noise_{sigma}_n_iters_{n_iters}_n_coils_{n_coils}"
@@ -293,6 +293,7 @@ logger.add(log_dir / "log-{time}.log")
 recon_coeffs = []
 recon_maps = []
 
+b1_map = sp.to_device(np.load('voxel_labels.npy'), device_idx)
 for i, (name, data_dir) in enumerate(zip(names, data_dirs)):
     logger.info(f"Loading {name} data from {data_dir}")
     keys = ["ksp", "trj", "dcf", "mps", "phi", "dct", "tissues", "b1_map", "imgs"]
@@ -308,7 +309,7 @@ for i, (name, data_dir) in enumerate(zip(names, data_dirs)):
     dcf = sp.to_device(data_dict["dcf"], device_idx)
     dcts = sp.to_device(data_dict["dct"], device_idx)
     imgs = sp.to_device(data_dict["imgs"], device_idx)
-    b1_map = sp.to_device(data_dict["b1_map"], device_idx)
+    # b1_map = sp.to_device(data_dict["b1_map"], device_idx)
     tissues = sp.to_device(data_dict["tissues"], device_idx)
 
     # Add noise
@@ -324,6 +325,23 @@ for i, (name, data_dir) in enumerate(zip(names, data_dirs)):
     for i in range(len(phis)):
         cmprs_dicts.append(dcts[:, i] @ phis[i].T)
 
+    # Debug, see what do we get with perfect images
+    if True:
+        sub_space = sp.to_device(np.zeros((220, 220, 5)), device_idx)
+        for i in range(len(phis)):
+            mask = np.where(b1_map == i, 1, 0)
+            sub_space += (imgs @ phis[i].T) * mask[..., None]
+
+        est_tissues = dict_matching(sub_space, cmprs_dicts, tissues, b1_map, brain_mask)
+        pd_err, t1_err, t2_err = est_error(gt_pd, gt_t1, gt_t2, est_tissues)
+        print(
+            f"Debug: pd mape: {pd_err} t1 mape: {t1_err} t2 mape: {t2_err}"
+        )
+        # Plot subspace coeffs
+        plot_coeffs([np.abs(sp.to_device(rearrange(sub_space, 'h w c -> c h w'), -1))], names, log_dir / "perfect_coeffs_cmpr.png")
+        gt = sp.to_device(np.concatenate((gt_pd[..., None], gt_t1[..., None], gt_t2[..., None]), axis=-1), -1)
+        plot_recons([sp.to_device(est_tissues, -1)], gt, names, sp.to_device(brain_mask, -1), log_dir / "perfect_recon_cmpr")
+
     recon, est_tissues_recon = mrfrf_recon(
         ksp,
         trj,
@@ -333,7 +351,7 @@ for i, (name, data_dir) in enumerate(zip(names, data_dirs)):
         cmprs_dicts,
         tissues,
         b1_map,
-        mask,
+        brain_mask,
         n_iters=n_iters,
     )
 
@@ -355,6 +373,6 @@ plot_coeffs(recon_coeffs, names, log_dir / "coeffs_cmpr.png")
 
 # Plot reconstructed maps and errors
 gt = sp.to_device(np.concatenate((gt_pd[..., None], gt_t1[..., None], gt_t2[..., None]), axis=-1), -1)
-plot_recons(recon_maps, gt, names, sp.to_device(mask, -1), log_dir / "recon_cmpr")
+plot_recons(recon_maps, gt, names, sp.to_device(brain_mask, -1), log_dir / "recon_cmpr")
 
 quit()
